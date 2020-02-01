@@ -431,7 +431,7 @@ asmlinkage long my_syscall(int cmd, int syscall, int pid) {
     {
         if (table[syscall].intercepted == 1)
         {
-            return -EBUSY  
+            return -EBUSY;
 		}
 	}
 
@@ -550,11 +550,13 @@ static int init_function(void)
 	spin_lock(&pidlist_lock);
 
     int k = 0;
-	for(k < NR_syscalls; k++){
+	while(k < NR_syscalls)
+    {
 		INIT_LIST_HEAD(&(table[k].my_list));
 		table[k].intercepted = 0;
 		table[k].monitored = 0;
 		table[k].listcount = 0;
+        k++;
 	}
 
     spin_unlock(&pidlist_lock);
@@ -579,11 +581,12 @@ static void exit_function(void)
 
     int k = 0;
 
-	for(k < NR_syscalls; k++)
+	while(k < NR_syscalls)
     {
         spin_unlock(&pidlist_lock);
 		destroy_list(k);
         spin_lock(&pidlist_lock);
+        k++;
 	}
 
     spin_unlock(&pidlist_lock);
