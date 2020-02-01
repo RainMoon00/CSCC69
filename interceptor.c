@@ -278,14 +278,12 @@ asmlinkage long interceptor(struct pt_regs reg)
 {    
     spin_lock(&pidlist_lock);
 
-    if ((table[reg.ax].monitered == 2) || check_pid_monitored(reg.ax, current->pid) == 1))
+    if ((table[reg.ax].monitored == 2) || check_pid_monitored(reg.ax, current->pid) == 1)
     {
         log_message(current->pid, reg.ax, reg.bx, reg.cx, reg.dx, reg.si, reg.di, reg.bp);
 	}
 
     spin_unlock(&pidlist_lock);
-    
-    )
 
 	return table[reg.ax].f(reg);
 }
@@ -357,7 +355,7 @@ asmlinkage long my_syscall(int cmd, int syscall, int pid) {
     }
 
     // check if pid is valid when cmd = REQUEST_START_MONITORING or REQUEST_STOP_MONITORING
-    if ((cmd == REQUEST_START_MONITORING) || (cmd == REQUEST_STOP_MONITO))
+    if ((cmd == REQUEST_START_MONITORING) || (cmd == REQUEST_STOP_MONITORING))
     {
         if (pid < 0)
         {
@@ -431,7 +429,7 @@ asmlinkage long my_syscall(int cmd, int syscall, int pid) {
     
     if (cmd == REQUEST_SYSCALL_INTERCEPT)
     {
-        if (talbe[syscall].intercepted == 1)
+        if (table[syscall].intercepted == 1)
         {
             return -EBUSY  
 		}
