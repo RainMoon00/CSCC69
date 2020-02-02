@@ -278,7 +278,7 @@ asmlinkage long interceptor(struct pt_regs reg)
 {    
     spin_lock(&pidlist_lock);
 
-    if ((table[reg.ax].monitored == 2) || check_pid_monitored(reg.ax, current->pid) == 1)
+    if ((table[reg.ax].monitored == 2) || (table[reg.ax].monitored == 1 && check_pid_monitored(reg.ax, current->pid)))
     {
         log_message(current->pid, reg.ax, reg.bx, reg.cx, reg.dx, reg.si, reg.di, reg.bp);
 	}
@@ -343,7 +343,7 @@ asmlinkage long my_syscall(int cmd, int syscall, int pid) {
     /* ----------------------------- For each of the commands, check that the arguments are valid (-EINVAL) --------------------------- */
 
     // check if the syscall is valid or not
-    if ((syscall < 0) || (syscall > NR_syscalls) || (syscall == MY_CUSTOM_SYSCALL))
+    if ((syscall < 0) || (syscall > NR_syscalls) || (syscall == MY_CUSTOM_SYSCALL) || pid < 0)
     {
         return -EINVAL;
 	}   
@@ -535,20 +535,7 @@ long (*orig_custom_syscall)(void);
 static int init_function(void)
 {
 
-    spin_lock(&calltable_lock);
-
-    orig_custom_syscall = sys_call_table[MY_CUSTOM_SYSCALL];
-	orig_exit_group = sys_call_table[__NR_exit_group];
-
-	set_addr_rw((unsigned long)sys_call_table);
-
-	sys_call_table[MY_CUSTOM_SYSCALL] = &my_syscall;
-	sys_call_table[__NR_exit_group] = &my_exit_group;
-
-	set_addr_ro((unsigned long)sys_call_table);
-
-	spin_lock(&pidlist_lock);
-
+    spin_lock(&pidlist_lock);
     int k = 0;
 	while(k < NR_syscalls)
     {
@@ -558,8 +545,18 @@ static int init_function(void)
 		table[k].listcount = 0;
         k++;
 	}
-
     spin_unlock(&pidlist_lock);
+
+
+    orig_custom_syscall = sys_call_table[MY_CUSTOM_SYSCALL];
+	orig_exit_group = sys_call_table[__NR_exit_group];
+
+    spin_lock(&calltable_lock);
+	set_addr_rw((unsigned long)sys_call_table);
+	sys_call_table[MY_CUSTOM_SYSCALL] = &my_syscall;
+	sys_call_table[__NR_exit_group] = &my_exit_group;
+	set_addr_ro((unsigned long)sys_call_table);
+    spin_unlocki&calltable_lock);
 
 	return 0;
 }
