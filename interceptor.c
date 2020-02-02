@@ -556,7 +556,7 @@ static int init_function(void)
 	sys_call_table[MY_CUSTOM_SYSCALL] = &my_syscall;
 	sys_call_table[__NR_exit_group] = &my_exit_group;
 	set_addr_ro((unsigned long)sys_call_table);
-    spin_unlockÅi&calltable_lock);
+    spin_unlock(&calltable_lock);
 
 	return 0;
 }
