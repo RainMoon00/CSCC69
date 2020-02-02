@@ -251,9 +251,8 @@ void (*orig_exit_group)(int);
  */
 void my_exit_group(int status)
 {
-	del_pid(current->pid);
-
-	(*orig_exit_group)(status);
+    del_pid(current->pid);
+    (*orig_exit_group)(status);
 }
 //----------------------------------------------------------------
 
@@ -275,15 +274,17 @@ void my_exit_group(int status)
  *     ax, bx, cx, dx, si, di, and bp registers (see the pt_regs struct).
  * - Don't forget to call the original system call, so we allow processes to proceed as normal.
  */
-asmlinkage long interceptor(struct pt_regs reg) {
-	pid_t pid = current->pid;
-	spin_lock(&pidlist_lock);
-	
-	if(table[reg.ax].monitored == 2 || (table[reg.ax].monitored == 1 && check_pid_monitored(reg.ax, pid))){
-		log_message(pid, reg.ax, reg.bx, reg.cx, reg.dx, reg.si, reg.di, reg.bp);	
+asmlinkage long interceptor(struct pt_regs reg) 
+{    
+    spin_lock(&pidlist_lock);
+
+    if ((table[reg.ax].monitored == 2) || check_pid_monitored(reg.ax, current->pid) == 1)
+    {
+        log_message(current->pid, reg.ax, reg.bx, reg.cx, reg.dx, reg.si, reg.di, reg.bp);
 	}
 
-	spin_unlock(&pidlist_lock);
+    spin_unlock(&pidlist_lock);
+
 	return table[reg.ax].f(reg);
 }
 
@@ -337,53 +338,122 @@ asmlinkage long interceptor(struct pt_regs reg) {
  *   you might be holding, before you exit the function (including error cases!).  
  */
 asmlinkage long my_syscall(int cmd, int syscall, int pid) {
-	// error checking part A
-	if(syscall > NR_syscalls || syscall < 0 || syscall == MY_CUSTOM_SYSCALL || pid < 0){
-		return -EINVAL;
-	}
+    
 
-	if(cmd == REQUEST_START_MONITORING || cmd == REQUEST_STOP_MONITORING){
-		if(pid_task(find_vpid(pid), PIDTYPE_PID) == NULL && pid != 0){
-			return -EINVAL;
+    /* ----------------------------- For each of the commands, check that the arguments are valid (-EINVAL) --------------------------- */
+
+    // check if the syscall is valid or not
+    if ((syscall < 0) || (syscall > NR_syscalls) || (syscall == MY_CUSTOM_SYSCALL))
+    {
+        return -EINVAL;
+	}   
+
+    // check if the command is valid or not
+    if ((cmd != REQUEST_SYSCALL_INTERCEPT) && (cmd != REQUEST_SYSCALL_RELEASE) && (cmd != REQUEST_START_MONITORING) && (cmd != REQUEST_STOP_MONITORING))
+    {
+        return -EINVAL;
+    }
+
+    // check if pid is valid when cmd = REQUEST_START_MONITORING or REQUEST_STOP_MONITORING
+    if ((cmd == REQUEST_START_MONITORING) || (cmd == REQUEST_STOP_MONITORING))
+    {
+        if (pid < 0)
+        {
+            return -EINVAL;
+		}
+        else if ((pid_task(find_vpid(pid), PIDTYPE_PID) == NULL) && pid != 0)
+        {
+            return -EINVAL;
 		}
 	}
-	
-	// error checking part B
-	if(cmd == REQUEST_SYSCALL_INTERCEPT || cmd == REQUEST_SYSCALL_RELEASE){
-		if (current_uid() != 0){
-			return -EPERM;
+
+    /* --------------------------------------------------- End of "-EINVAL" check --------------------------------------------------------- */
+
+
+        
+    /* ---------------------------------- Check if the caller has the right permissions (-EPERM) ------------------------------------------ */
+
+    // Check if the caller has right permissions to call REQUEST_SYSCALL_INTERCEPT & REQUEST_SYSCALL_RELEASE
+    if ((cmd == REQUEST_SYSCALL_INTERCEPT) || (cmd == REQUEST_SYSCALL_RELEASE))
+    {
+        if (current_uid() != 0)
+        {
+            return -EPERM;
+        }
+    }
+    
+    // Check if the caller has right permissions to call REQUEST_START_MONITORING & REQUEST_STOP_MONITORING 
+    if ((cmd == REQUEST_START_MONITORING) || (cmd == REQUEST_STOP_MONITORING))
+    {
+        if ((current_uid() != 0) || ((pid == 0) && (check_pid_from_list(current->pid, pid) == -EPERM)))
+        {
+            return -EPERM;
+        }
+    }
+
+    /* ------------------------------------------------- End of -EPERM check ----------------------------------------------------------------- */
+
+
+
+    /* ------------------------------- Check for correct context of commands (-EINVAL) ------------------------------------------------------- */
+
+    // Synchronization 
+    spin_lock(&pidlist_lock);
+
+    // Check for correct context of commands
+    if (cmd == REQUEST_STOP_MONITORING)
+    {
+        // Check if REQUEST_SYSCALL_RELEASE is called but no pids are monitored.
+        if (table[syscall].monitored == 0)
+        {
+            spin_unlock(&pidlist_lock);
+            return -EINVAL;
+        }
+    }
+
+    if (cmd == REQUEST_SYSCALL_RELEASE)
+    {
+        // Check if REQUEST_SYSCALL_RELEASE is called on no pids are monitored
+        if (table[syscall].intercepted == 0)
+        {
+            spin_unlock(&pidlist_lock);
+            return -EINVAL;
 		}
 	}
-	if(cmd == REQUEST_START_MONITORING || cmd == REQUEST_STOP_MONITORING){
-		if (current_uid() != 0 && ((check_pid_from_list(pid, current->pid) == -EPERM) || pid == 0)){
-			return -EPERM;
+
+    /* ------------------------------- End of check of correct context of commands (-EINVAL) ---------------------------------------------------- */
+
+
+
+    /* -------------------------------------- Check for -EBUSY conditions ----------------------------------------------------------------------- */
+    
+    if (cmd == REQUEST_SYSCALL_INTERCEPT)
+    {
+        if (table[syscall].intercepted == 1)
+        {
+            return -EBUSY;
 		}
 	}
 
-	// error checking part C,D,E
-
-	if(cmd == REQUEST_SYSCALL_RELEASE && table[syscall].intercepted == 0){
-		return -EINVAL;
-	}
-
-	if(cmd == REQUEST_STOP_MONITORING && table[syscall].monitored == 0){
-		return -EINVAL;
-	}
-
-	if(cmd == REQUEST_SYSCALL_INTERCEPT && table[syscall].intercepted == 1){
-		return -EBUSY;
-	}
-
-	if(cmd == REQUEST_START_MONITORING && table[syscall].monitored == 2){
-		return -EBUSY;
-	}
-
-	if(cmd == REQUEST_START_MONITORING && table[syscall].monitored == 1 &&
-		check_pid_monitored(syscall, pid) == 1){
-			return -EBUSY;
+    if (cmd == REQUEST_START_MONITORING)
+    {    
+        // Check if REQUEST_START_MONITORING is called but all pids are monitored.
+        if (table[syscall].monitored == 2)
+        {
+            spin_unlock(&pidlist_lock);
+            return -EBUSY;
+        }
+        // Check if REQUEST_START_MONITORING is called on pid that is already monitored
+        if ((check_pid_monitored(syscall, pid) == 1) && (table[syscall].monitored == 1))
+        {
+            spin_unlock(&pidlist_lock);
+            return -EBUSY;
 		}
+    }
+    spin_unlock(&pidlist_lock);
+    
+    /* ----------------------------------------- End of -EBUSY check ---------------------------------------------------------------------------- */
 
-	// command handling
 	switch (cmd){
 		case REQUEST_SYSCALL_INTERCEPT:
 			table[syscall].f = sys_call_table[syscall];
@@ -405,6 +475,7 @@ asmlinkage long my_syscall(int cmd, int syscall, int pid) {
 			set_addr_ro((unsigned long)sys_call_table);
 			spin_unlock(&calltable_lock);
 			break;
+
 		case REQUEST_START_MONITORING:
 			spin_lock(&pidlist_lock);
 
@@ -455,7 +526,7 @@ long (*orig_custom_syscall)(void);
  *   in orig_exit_group.
  * - Make sure to set the system call table to writable when making changes, 
  *   then set it back to read only once done.
- * - Perform any necessary initializations for bookkeeping data structures. 
+ * - Perform any necessary initializations for bookkeeping data structures. orig_custom_syscal
  *   To initialize a list, use 
  *        INIT_LIST_HEAD (&some_list);
  *   where some_list is a "struct list_head". 
@@ -463,35 +534,40 @@ long (*orig_custom_syscall)(void);
  */
 static int init_function(void)
 {
-	// initialize table data structrue
-	int i = 0;
-	spin_lock(&pidlist_lock);
-	while(i < NR_syscalls){
-		table[i].intercepted = 0;
-		table[i].monitored = 0;
-		table[i].listcount = 0;
-		INIT_LIST_HEAD(&(table[i].my_list));
-		i++;
-	}
-	spin_unlock(&pidlist_lock);
-	// store orig syscalls
-	orig_custom_syscall = sys_call_table[MY_CUSTOM_SYSCALL];
+
+    spin_lock(&calltable_lock);
+
+    orig_custom_syscall = sys_call_table[MY_CUSTOM_SYSCALL];
 	orig_exit_group = sys_call_table[__NR_exit_group];
-	// hijack syscalls
-	spin_lock(&calltable_lock);
-	set_addr_rw((unsigned long)(&sys_call_table));
-	sys_call_table[MY_CUSTOM_SYSCALL] = my_syscall;
-	sys_call_table[__NR_exit_group] = my_exit_group;
-	set_addr_ro((unsigned long)(&sys_call_table));
-	spin_unlock(&calltable_lock);	
-	
+
+	set_addr_rw((unsigned long)sys_call_table);
+
+	sys_call_table[MY_CUSTOM_SYSCALL] = &my_syscall;
+	sys_call_table[__NR_exit_group] = &my_exit_group;
+
+	set_addr_ro((unsigned long)sys_call_table);
+
+	spin_lock(&pidlist_lock);
+
+    int k = 0;
+	while(k < NR_syscalls)
+    {
+		INIT_LIST_HEAD(&(table[k].my_list));
+		table[k].intercepted = 0;
+		table[k].monitored = 0;
+		table[k].listcount = 0;
+        k++;
+	}
+
+    spin_unlock(&pidlist_lock);
+
 	return 0;
 }
 
 /**
  * Module exits. 
  *
- * TODO: Make sure to:  
+ * TODO: Make sure to:
  * - Restore MY_CUSTOM_SYSCALL to the original syscall.
  * - Restore __NR_exit_group to its original syscall.
  * - Make sure to set the system call table to writable when making changes, 
@@ -499,24 +575,30 @@ static int init_function(void)
  * - Ensure synchronization, if needed.
  */
 static void exit_function(void)
-{        
-	// free pid list memory
-	int i = 0;
-	spin_lock(&pidlist_lock);
-	while(i < NR_syscalls){
-		destroy_list(i);
-		i++;
+{
+    // pidlist_lock
+    spin_lock(&pidlist_lock);
+
+    int k = 0;
+
+	while(k < NR_syscalls)
+    {
+        spin_unlock(&pidlist_lock);
+		destroy_list(k);
+        spin_lock(&pidlist_lock);
+        k++;
 	}
-	spin_unlock(&pidlist_lock);
 
-	// restoring sys_call_table
+    spin_unlock(&pidlist_lock);
+
+    // calltable_lock
 	spin_lock(&calltable_lock);
-	set_addr_rw((unsigned long)(&sys_call_table));
 
+	set_addr_rw((unsigned long)sys_call_table);
 	sys_call_table[MY_CUSTOM_SYSCALL] = orig_custom_syscall;
 	sys_call_table[__NR_exit_group] = orig_exit_group;
-	
-	set_addr_ro((unsigned long)(&sys_call_table));
+	set_addr_ro((unsigned long)sys_call_table);
+
 	spin_unlock(&calltable_lock);
 
 }
