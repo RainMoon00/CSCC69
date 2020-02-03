@@ -460,19 +460,23 @@ asmlinkage long my_syscall(int cmd, int syscall, int pid) {
 			table[syscall].f = sys_call_table[syscall];
 			table[syscall].intercepted = 1;
 			
+            spin_lock(&calltable_lock);
 			set_addr_rw((unsigned long)sys_call_table);
 			sys_call_table[syscall] = &interceptor;
 			set_addr_ro((unsigned long)sys_call_table);
 			spin_unlock(&calltable_lock);
+            spin_unlock(&pidlist_lock);
 			break;
 
 		case REQUEST_SYSCALL_RELEASE:
 			table[syscall].intercepted = 0;
 
+            spin_lock(&calltable_lock);
 			set_addr_rw((unsigned long)sys_call_table);
 			sys_call_table[syscall] = table[syscall].f;
 			set_addr_ro((unsigned long)sys_call_table);
 			spin_unlock(&calltable_lock);
+            spin_unlock(&pidlist_lock);
 			break;
 
 		case REQUEST_START_MONITORING:
