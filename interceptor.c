@@ -431,6 +431,7 @@ asmlinkage long my_syscall(int cmd, int syscall, int pid) {
     {
         if (table[syscall].intercepted == 1)
         {
+            spin_unlock(&pidlist_lock);
             return -EBUSY;
 		}
 	}
@@ -455,6 +456,7 @@ asmlinkage long my_syscall(int cmd, int syscall, int pid) {
     /* ----------------------------------------- End of -EBUSY check ---------------------------------------------------------------------------- */
 
 	switch (cmd){
+
 		case REQUEST_SYSCALL_INTERCEPT:
 			table[syscall].f = sys_call_table[syscall];
 			table[syscall].intercepted = 1;
@@ -479,30 +481,37 @@ asmlinkage long my_syscall(int cmd, int syscall, int pid) {
 		case REQUEST_START_MONITORING:
 			spin_lock(&pidlist_lock);
 
-			if(pid == 0){
+			if(pid == 0
+            ){
 				table[syscall].monitored = 2;
-			}else{
-				if(add_pid_sysc(pid, syscall) == -ENOMEM){
+			}
+            else
+            {
+				if(add_pid_sysc(pid, syscall) == -ENOMEM)
+                {
 					spin_unlock(&pidlist_lock);
 					return -ENOMEM;
 				}
 				table[syscall].monitored = 1;
 			}
-
 			spin_unlock(&pidlist_lock);
 			break;
+
 		case REQUEST_STOP_MONITORING:
 			spin_lock(&pidlist_lock);
 
-			if(pid == 0){
+			if(pid == 0)
+            {
 				table[syscall].monitored = 0;
 				destroy_list(syscall);
-			}else{
+			}
+            else
+            {
 				del_pid_sysc(pid, syscall);
 			}
-
 			spin_unlock(&pidlist_lock);
 			break;
+
 		default:
 			return -EINVAL;
 			break;
@@ -534,7 +543,6 @@ long (*orig_custom_syscall)(void);
  */
 static int init_function(void)
 {
-
     spin_lock(&pidlist_lock);
     int k = 0;
 	while(k < NR_syscalls)
