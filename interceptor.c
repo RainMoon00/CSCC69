@@ -439,7 +439,7 @@ asmlinkage long my_syscall(int cmd, int syscall, int pid) {
             return -EBUSY;
         }
         // Check if REQUEST_START_MONITORING is called on pid that is already monitored
-        if ((check_pid_monitored(syscall, pid) == 1) && (table[syscall].monitored == 1))
+        if ((table[syscall].monitored == 1) && (check_pid_monitored(syscall, pid) == 1))
         {
             return -EBUSY;
 		}
@@ -503,6 +503,7 @@ asmlinkage long my_syscall(int cmd, int syscall, int pid) {
 			break;
 
 		default:
+            return -EINVAL;
 			break;
 	}
 
@@ -533,14 +534,14 @@ long (*orig_custom_syscall)(void);
 static int init_function(void)
 {
     spin_lock(&pidlist_lock);
-    int k = 0;
-	while(k < NR_syscalls)
+    int i = 0;
+	while(i < NR_syscalls)
     {
-		table[k].intercepted = 0;
-		table[k].monitored = 0;
-		table[k].listcount = 0;
-        INIT_LIST_HEAD(&(table[k].my_list));
-        k++;
+		table[i].intercepted = 0;
+		table[i].monitored = 0;
+		table[i].listcount = 0;
+        INIT_LIST_HEAD(&(table[i].my_list));
+        i++;
 	}
     spin_unlock(&pidlist_lock);
 
@@ -549,10 +550,10 @@ static int init_function(void)
 	orig_exit_group = sys_call_table[__NR_exit_group];
 
     spin_lock(&calltable_lock);
-	set_addr_rw((unsigned long)sys_call_table);
+	set_addr_rw((unsigned long)&sys_call_table);
 	sys_call_table[MY_CUSTOM_SYSCALL] = my_syscall;
 	sys_call_table[__NR_exit_group] = my_exit_group;
-	set_addr_ro((unsigned long)sys_call_table);
+	set_addr_ro((unsigned long)&sys_call_table);
     spin_unlock(&calltable_lock);
 
 	return 0;
@@ -573,11 +574,11 @@ static void exit_function(void)
     // pidlist_lock
     spin_lock(&pidlist_lock);
 
-    int k = 0;
-	while(k < NR_syscalls)
+    int i = 0;
+	while(i < NR_syscalls)
     {
-		destroy_list(k);
-        k++;
+		destroy_list(i);
+        i++;
 	}
 
     spin_unlock(&pidlist_lock);
@@ -585,10 +586,10 @@ static void exit_function(void)
     // calltable_lock
 	spin_lock(&calltable_lock);
 
-	set_addr_rw((unsigned long)sys_call_table);
+	set_addr_rw((unsigned long)&sys_call_table);
 	sys_call_table[MY_CUSTOM_SYSCALL] = orig_custom_syscall;
 	sys_call_table[__NR_exit_group] = orig_exit_group;
-	set_addr_ro((unsigned long)sys_call_table);
+	set_addr_ro((unsigned long)&sys_call_table);
 
 	spin_unlock(&calltable_lock);
 
