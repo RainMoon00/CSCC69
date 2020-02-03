@@ -533,8 +533,8 @@ long (*orig_custom_syscall)(void);
  */
 static int init_function(void)
 {
-    spin_lock(&pidlist_lock);
     int i = 0;
+    spin_lock(&pidlist_lock);
 	while(i < NR_syscalls)
     {
 		table[i].intercepted = 0;
@@ -571,10 +571,9 @@ static int init_function(void)
  */
 static void exit_function(void)
 {
+    int i = 0;
     // pidlist_lock
     spin_lock(&pidlist_lock);
-
-    int i = 0;
 	while(i < NR_syscalls)
     {
 		destroy_list(i);
