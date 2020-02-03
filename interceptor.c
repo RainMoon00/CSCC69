@@ -385,7 +385,7 @@ asmlinkage long my_syscall(int cmd, int syscall, int pid) {
     // Check if the caller has right permissions to call REQUEST_START_MONITORING & REQUEST_STOP_MONITORING 
     if ((cmd == REQUEST_START_MONITORING) || (cmd == REQUEST_STOP_MONITORING))
     {
-        if ((current_uid() != 0) || ((pid == 0) && (check_pid_from_list(current->pid, pid) == -EPERM)))
+        if ((current_uid() != 0) && ((pid == 0) || (check_pid_from_list(current->pid, pid) == -EPERM)))
         {
             return -EPERM;
         }
